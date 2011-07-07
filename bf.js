@@ -96,19 +96,19 @@ BrainFuck.prototype = {
     this._machinestatus = BrainFuckStatus.RUNNING;
   },
   exec: function() {
+    console.log('exec called');
     if (this._breakpoints[this._pc]) {
       if (this.onbreakpoint) {
         this.onbreakpoint(this);
       }
-      this._machinestatus = BrainFuckStatus.RUNNING;
-      return BrainFuckStatus.RUNNING;;
     }
     else {
-      this._stepper();
+      this.step();
       if (this._machinestatus == BrainFuckStatus.RUNNING) {
-        setInterval(this._execer, 0);
+        setTimeout(this._execer, 0);
       }
     }
+    return this._machinestatus;
   },
   step: function() {
     if (this._pc < this._code.length) {
