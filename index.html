@@ -41,22 +41,37 @@
        overflow: auto;
        height: 10%;
       }
+      .break {
+       background-color: pink;
+      }
+      h3 {
+       padding: 0;
+       margin: 0;
+      }
    </style>
 </head>
 <body>
    <div id="wrapper">
       <div id="debug">
+         <h3>Registers</h3>
+         <div>
+            <strong>DP:</strong> <span id="dp"></span><br />
+            <strong>PC:</strong> <span id="pc"></span><br />
+         </div>
          <h3>Instructions</h3>
          <div id="instructions">
          </div>
+         <br clear="both" />
          <h3>Heap</h3>
          <div id="heap">
          </div>
       </div>
       <div id="editor">
          <div id="toolbar">
-            <button id="run">Run</button>
-            <button id="step">Step</button>
+            <button id="run">run</button>
+            <button id="step">step</button>
+            <button id="load">load</button>
+            <button id="reset">reset</button>
          </div>
          <div id="codecontainer">
             <textarea id="code">++++++++++[&gt;+++++++&gt;++++++++++&gt;+++&gt;+<<<<-]&gt;++.&gt;+.+++++++..+++.&gt;++.<<+++++++++++++++.&gt;.+++.------.--------.&gt;+.&gt;.</textarea>
@@ -88,23 +103,27 @@ function preexec(bf) {
   var heap = bf.heap();
 
   for (var i = 0; i < code.length; i++) {
-    html += '<li id="pc-' + i + '" title="code offset: ' + i + '">' + code[i] + '</li>';
+    html += '<li class="instruction" id="pc-' + i + '" title="code offset: ' + i + '">' + code[i] + '</li>';
   }
   $("#instructions").html(html + '</ul>');
   html = '<ul>';
   for (i = 0; i < heap.length; i++) {
-    html += '<li id="dp-' + i + '" title="code offset: ' + i + '">' + heap[i] + '</li>';
+    html += '<li id="dp-' + i + '" title="data offset: ' + i + '">' + heap[i] + '</li>';
   }
   $("#heap").html(html + '</ul>');
+  $('#dp').html('0');
+  $('#pc').html('0');
 }
 function preinst(bf) {
-  $("#pc-" + bf.lastPC()).removeClass('current');
-  $("#pc-" + bf.currentPC()).addClass('current');
-  $("#dp-" + bf.currentDP()).removeClass('current');
+
 }
 function postinst(bf) {
-  $("#dp-" + bf.currentDP()).html(bf.currentAtDP());
-  console.log(bf.currentDP() + '  ' + bf.currentAtDP());
+  $("#pc-" + bf.lastPC()).removeClass('current');
+  $("#dp-" + bf.lastDP()).removeClass('current');
+  $("#dp-" + bf.currentDP()).html(bf.currentAtDP()).addClass('current');
+  $("#pc-" + bf.currentPC()).addClass('current');
+  $('#dp').text(bf.currentDP());
+  $('#pc').text(bf.currentPC());
 }
 function onerror(bf, msg) {
   $('#console').append('<p class="error">' + msg + '</p>');
@@ -114,13 +133,36 @@ function output(b) {
 }
 
 jQuery(function($) {
+  var bf = new BrainFuck(getinput, output, 512);
+  bf.onerror = onerror;
+  bf.onpreinst = preinst;
+  bf.onpostinst = postinst;
+  bf.onpreexec = preexec;
+
   $('#run').click(function () {
-    var bf = new BrainFuck(getinput, output);
-    bf.onerror = onerror;
-    bf.onpreinst = preinst;
-    bf.onpostinst = postinst;
-    bf.onpreexec = preexec;
-    bf.exec($('#code').val());
+    if (bf.status() == BrainFuckStatus.STOPPED) {
+      bf.load($('#code').val());
+    }
+    bf.exec();
+  });
+  $('#step').click(function () {
+    if (bf.status() == BrainFuckStatus.STOPPED) {
+      bf.load($('#code').val());
+    }
+    bf.step();
+  });
+  $('#reset').click(function () {
+    bf.load('');
+  });
+  $('#load').click(function () {
+    bf.load($('#code').val());
+  });
+
+  $('.instruction').live('click', function() {
+    var t = $(this);
+    var pc = t.attr('id').replace('pc-', '');;
+    t.toggleClass('break');
+    bf.toggleBreakPoint(parseInt(pc));
   });
 });
 //]]>
