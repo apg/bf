@@ -1,0 +1,129 @@
+<html>
+<head>
+   <title>Visual BrainF*ck</title>
+   <script src="bf.js" type="text/javascript"></script>
+   <script src="jquery.js" type="text/javascript"></script>
+   <style type="text/css">
+      .error { color: pink; }
+      .current { background-color: yellow; font-weight: bold; }
+      #debug {
+        float: right;
+        width: 300px;
+      }
+      #debug ul {
+       display: inline;
+       list-style: none;
+      }
+      #debug li { 
+       display: block;
+       float: left;
+       padding: 2px;
+      }
+      #instructions { clear: both; }
+      #heap { clear: both; }
+      #editor {
+       float: left;
+       width: 600px;
+       height: 100%;
+      }
+      #toolbar {
+       height: 30px;
+      }
+      #codecontainer {
+       width: 100%;
+       height: 80%;
+      }
+      #codecontainer textarea {
+       width: 95%;
+       height: 95%;
+      }
+      #console {
+       overflow: auto;
+       height: 10%;
+      }
+   </style>
+</head>
+<body>
+   <div id="wrapper">
+      <div id="debug">
+         <h3>Instructions</h3>
+         <div id="instructions">
+         </div>
+         <h3>Heap</h3>
+         <div id="heap">
+         </div>
+      </div>
+      <div id="editor">
+         <div id="toolbar">
+            <button id="run">Run</button>
+            <button id="step">Step</button>
+         </div>
+         <div id="codecontainer">
+            <textarea id="code">++++++++++[&gt;+++++++&gt;++++++++++&gt;+++&gt;+<<<<-]&gt;++.&gt;+.+++++++..+++.&gt;++.<<+++++++++++++++.&gt;.+++.------.--------.&gt;+.&gt;.</textarea>
+                                                                                                                            </div>
+         <h3>Console</h3>
+         <div id="console">
+         </div>
+      </div>
+   </div>
+   <script type="text/javascript">
+//<![CDATA[
+function getinput() {
+  var x = prompt('Enter a value: (0xFF or single character)', 'Byte');
+  if (x === '') {
+    return 0;
+  }
+  else if (x[1] === 'x') {
+    return Integer.parseInt(x, 16);
+  }
+  else {
+    return x.charCodeAt(0);
+  }
+}
+
+function preexec(bf) {
+  var i;
+  var html = '<ul>';
+  var code = bf.code();
+  var heap = bf.heap();
+
+  for (var i = 0; i < code.length; i++) {
+    html += '<li id="pc-' + i + '" title="code offset: ' + i + '">' + code[i] + '</li>';
+  }
+  $("#instructions").html(html + '</ul>');
+  html = '<ul>';
+  for (i = 0; i < heap.length; i++) {
+    html += '<li id="dp-' + i + '" title="code offset: ' + i + '">' + heap[i] + '</li>';
+  }
+  $("#heap").html(html + '</ul>');
+}
+function preinst(bf) {
+  $("#pc-" + bf.lastPC()).removeClass('current');
+  $("#pc-" + bf.currentPC()).addClass('current');
+  $("#dp-" + bf.currentDP()).removeClass('current');
+}
+function postinst(bf) {
+  $("#dp-" + bf.currentDP()).html(bf.currentAtDP());
+  console.log(bf.currentDP() + '  ' + bf.currentAtDP());
+}
+function onerror(bf, msg) {
+  $('#console').append('<p class="error">' + msg + '</p>');
+}
+function output(b) {
+  $('#console').text($('#console').text() + String.fromCharCode(b));
+}
+
+jQuery(function($) {
+  $('#run').click(function () {
+    var bf = new BrainFuck(getinput, output);
+    bf.onerror = onerror;
+    bf.onpreinst = preinst;
+    bf.onpostinst = postinst;
+    bf.onpreexec = preexec;
+    bf.exec($('#code').val());
+  });
+});
+//]]>
+   </script>
+</body>
+</html>
