@@ -10,13 +10,16 @@
 
 // how much loop nesting can we do?
 #define LOOP_STACK_SIZE 32
+// standard heap size is 30000 cells.
+#define HEAP_SIZE 30000
 
 struct BF {
-  char *prog; // program
-  char *pc; // program counter
-  int cs; // program size;
-  int *heap; // data
-  int *dp; // data pointer
+  char *prog; 
+  char *pc; 
+  int prog_size; 
+  char *heap; // cells are bytes
+  int heap_size;
+  char *dp;
   char **loopstack; // jump pointers for looping
   int loopstack_length;
 };
@@ -36,7 +39,7 @@ load_program(struct BF *bf, char *filename)
 
   if (!fstat(fd, &buf)) {
     bf->prog = malloc(1 + (sizeof(*bf->prog) * buf.st_size));
-    bf->cs = buf.st_size;
+    bf->prog_size = buf.st_size;
     left = buf.st_size;
     if (!bf->prog) {
       return -1;
@@ -70,7 +73,7 @@ load_program(struct BF *bf, char *filename)
 
 
 struct BF *
-init(long heap, char *filename)
+init(long hsize, char *filename)
 {
   int i;
   struct BF *bf = malloc(sizeof(*bf));
@@ -78,12 +81,15 @@ init(long heap, char *filename)
     goto error;
   }
   else {
-    bf->heap = malloc(sizeof(*bf->heap) * heap);
+    // allocate heap
+    bf->heap = malloc(sizeof(*bf->heap) * hsize);
     if (!bf->heap) {
       goto errorheap;
     }
     else {
-      memset(bf->heap, 0, heap);
+      bf->heap_size = hsize;
+      memset(bf->heap, 0, hsize);
+      // allocate nested loop stack
       bf->loopstack = malloc(sizeof(*bf->loopstack) * LOOP_STACK_SIZE);
       if (!bf->loopstack) {
         goto errorloop;
@@ -119,8 +125,9 @@ int
 exec(struct BF *bf)
 {
   int opens = 0;
+  char tmpchr;
   char *tpc;
-  char *pe = bf->pc + bf->cs;
+  char *pe = bf->pc + bf->prog_size;
   int *t;
 
   while (bf->pc < pe) {
@@ -141,7 +148,16 @@ exec(struct BF *bf)
       putchar(*bf->dp);
       break;
     case ',':
-      *bf->dp = getchar();
+      tmpchr = (char)getchar();
+      switch (tmpchr) {
+      case -1: 
+        tmpchr = 0; // normalize EOF to 0
+        break;
+      case 13:
+        tmpchr = 10; // normalize \r to \n
+        break;
+      }
+      *bf->dp = tmpchr;
       break;
     case '[':
       if (bf->loopstack_length < LOOP_STACK_SIZE) {
@@ -208,6 +224,6 @@ main(int argc, char **argv)
     exit(1);
   }
 
-  bf = init(1024, argv[1]);
+  bf = init(HEAP_SIZE, argv[1]);
   return exec(bf);
 }
