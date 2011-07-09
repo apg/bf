@@ -1,11 +1,20 @@
 CC = gcc
-CFLAGS = -g
+DCFLAGS = -g
+PCFLAGS = -pg
+
+objs = util.o bf.o main.o
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-bf: util.o bf.o
+bf: $(objs)
 	$(CC) $(CFLAGS) -o $@ $^
+
+debug: $(objs)
+	$(CC) $(DEBUGCFLAGS) -o bf-debug $^
+
+profile: $(objs)
+	$(CC) $(PCFLAGS) -o bf-profile $^
 
 clean:
 	@$(RM) -rf *.o bf.dSYM

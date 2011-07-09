@@ -49,7 +49,7 @@ bf_op_t bf_op_from_ascii(unsigned char);
 int bf_load(bf_context_t *, char *filename);
 int bf_load_optimized(bf_context_t *, char *filename);
 bf_context_t *bf_make_context(int hsize, int lssize);
-void bf_destroy_context(int hsize);
+void bf_context_destroy(bf_context_t *);
 int bf_exec(bf_context_t *);
 
 #endif

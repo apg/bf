@@ -35,8 +35,6 @@ bf_getchar()
   int tmp, c;
   c = getchar();
 
-  printf("read: 0x%x\n", c);
-
   switch (c) {
   case 13: // '\r\n' gets normalized to just '\n'
     tmp = getchar();
@@ -109,7 +107,7 @@ bf_load(bf_context_t *bf, char *filename)
       cp++;
     }
   }
-  //  bf->code = realloc(code, cp); // resize code block
+  bf->code = realloc(code, cp); // resize code block
   bf->code = code;
   bf->code_size = cp;
   bf->pc = code;
@@ -122,7 +120,67 @@ bf_load(bf_context_t *bf, char *filename)
 int
 bf_load_optimized(bf_context_t *bf, char *filename)
 {
+  long fsize;
+  FILE *fin;
+  bf_inst_t *code;
+  long cp = 0;
+  bf_op_t curop, lastop, tmpop;
+  int opcount;
+
+
+  fin = fopen(filename, "rb");
+  if (!fin) {
+    goto error;
+  }
+
+  fsize = file_size(fin);
+  if (fsize < 0) {
+    goto error;
+  }
   
+  code = malloc(sizeof(*code) * fsize);
+  if (code == NULL) {
+    goto error;
+  }
+  curop = bf_op_from_ascii((unsigned char) fgetc(fin));
+  while (!feof(fin)) {
+    if (curop == BF_OP_LOOP ||
+        curop == BF_OP_LOOPEND ||
+        curop == BF_OP_GET ||
+        curop == BF_OP_PUT ||
+        curop == BF_OP_NOP) {
+      if (curop != BF_OP_NOP) {
+        code[cp].operator = curop;
+        code[cp].count = 1;
+        cp++;
+      }
+      curop = bf_op_from_ascii((unsigned char) fgetc(fin));
+    }
+    else {
+      opcount = 0;
+      lastop = curop;
+      do {
+        tmpop = bf_op_from_ascii((unsigned char) fgetc(fin));
+        opcount++;
+      }
+      while ((tmpop == lastop) && !feof(fin));
+
+      code[cp].operator = lastop;
+      code[cp].count = opcount;
+      cp++;
+      // set curop to whatever broke the loop
+      curop = tmpop;
+    }
+  }
+
+  bf->code = realloc(code, cp); // resize code block
+  bf->code = code;
+  bf->code_size = cp;
+  bf->pc = code;
+  return 0;
+ error:
+  fprintf(stderr, "Couldn't load file");
+  return -1;
 }
 
 bf_context_t *
@@ -159,6 +217,22 @@ bf_make_context(int hsize, int lssize)
   free(bf);
  error:
   return NULL;
+}
+
+void 
+bf_context_destroy(bf_context_t *bf)
+{
+  if (bf != NULL) {
+    if (bf->heap != NULL) {
+      free(bf->heap);
+    }
+    if (bf->code != NULL) {
+      free(bf->code);
+    }
+    if (bf->loop_stack != NULL) {
+      free(bf->loop_stack);
+    }
+  }
 }
 
 int
@@ -221,26 +295,4 @@ bf_exec(bf_context_t *bf)
     }
     bf->pc++;
   }
-}
-
-int
-main(int argc, char **argv)
-{
-  bf_context_t *bf;
-  if (argc > 1) {
-    bf = bf_make_context(BF_HEAP_SIZE, BF_LOOP_STACK_SIZE);
-    if (!bf) {
-      fprintf(stderr, "uhh.. failed to allocate\n");
-      exit(1);
-    }
-    if (bf_load(bf, argv[1]) < 0) {
-      return 1;
-    }
-    bf_exec(bf);
-  }
-  else {
-    fprintf(stderr, "usage: bf <prog>\n");
-    return 1;
-  }
-  return 0;
 }
