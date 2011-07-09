@@ -1,229 +1,246 @@
-// A simple brainfuck interpreter.
-
+// A simple (optimizing) brainfuck interpreter.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#include <fcntl.h>
+#include "bf.h"
 
-// how much loop nesting can we do?
-#define LOOP_STACK_SIZE 32
-// standard heap size is 30000 cells.
-#define HEAP_SIZE 30000
+#define CODE_BUFFER_SIZE 1024
 
-struct BF {
-  char *prog; 
-  char *pc; 
-  int prog_size; 
-  char *heap; // cells are bytes
-  int heap_size;
-  char *dp;
-  char **loopstack; // jump pointers for looping
-  int loopstack_length;
-};
+static bf_inst_t * 
+locate_loop_skip_position(bf_context_t *bf)
+{
+  bf_inst_t *tmppc = bf->pc;
+  int loops = 0;
+  while (tmppc < (bf->code + bf->code_size)) {
+    if (tmppc->operator == BF_OP_LOOPEND) {
+      if (loops > 0) {
+        loops--;
+        continue;
+      }
+      loops = 0;
+      printf("returning loop\n");
+      return tmppc;
+    }
+    else if (tmppc->operator == BF_OP_LOOP) {
+      loops++;
+    }
+    tmppc++;
+  }
+  return NULL;
+}
 
 int
-load_program(struct BF *bf, char *filename)
+bf_getchar()
 {
-  struct stat buf;
-  int fd, left, rd;
-  char *pr;
+  int tmp, c;
+  c = getchar();
 
-  fd = open(filename, O_RDONLY);
-  if (fd < 0) {
-    fprintf(stderr, "Couldn't open file: %s\n", filename);
-    return -1;
-  }
+  printf("read: 0x%x\n", c);
 
-  if (!fstat(fd, &buf)) {
-    bf->prog = malloc(1 + (sizeof(*bf->prog) * buf.st_size));
-    bf->prog_size = buf.st_size;
-    left = buf.st_size;
-    if (!bf->prog) {
-      return -1;
+  switch (c) {
+  case 13: // '\r\n' gets normalized to just '\n'
+    tmp = getchar();
+    if (tmp == 10) {
+      return tmp;
     }
+    ungetc(tmp, stdin);
+    return c;
+  case EOF:
+    return 0;
+  default:
+    return c;
   }
-  else {
-    fprintf(stderr, "Error stating file\n");
-    return -1;
-  }
-
-  // read the program.
-  pr = bf->prog;
-  do {
-    rd = read(fd, pr, left);
-    if (rd > 0) {
-      left -= rd;
-      pr += rd;
-    }
-    else if (rd == 0) {
-      left = 0;
-    }
-    else {
-      fprintf(stderr, "Error reading file\n");
-      return -1;
-    }
-  }
-  while (left > 0);
-  bf->prog[buf.st_size] = 0;
-  return 0;
 }
 
 
-struct BF *
-init(long hsize, char *filename)
+bf_op_t
+bf_op_from_ascii(unsigned char c)
 {
-  int i;
-  struct BF *bf = malloc(sizeof(*bf));
+  switch (c) {
+  case BF_ASCII_OP_LEFT:
+    return BF_OP_LEFT;
+  case BF_ASCII_OP_RIGHT:
+    return BF_OP_RIGHT;
+  case BF_ASCII_OP_INCR:
+    return BF_OP_INCR;
+  case BF_ASCII_OP_DECR:
+    return BF_OP_DECR;
+  case BF_ASCII_OP_LOOP:
+    return BF_OP_LOOP;
+  case BF_ASCII_OP_LOOPEND:
+    return BF_OP_LOOPEND;
+  case BF_ASCII_OP_GET:
+    return BF_OP_GET;
+  case BF_ASCII_OP_PUT:
+    return BF_OP_PUT;
+  }
+  return BF_OP_NOP; // dunno what that is.
+}
+
+
+int
+bf_load(bf_context_t *bf, char *filename)
+{
+  long fsize;
+  FILE *fin;
+  bf_inst_t *code;
+  long cp = 0;
+  bf_op_t curop;
+
+  fin = fopen(filename, "rb");
+  if (!fin) {
+    goto error;
+  }
+
+  fsize = file_size(fin);
+  if (fsize < 0) {
+    goto error;
+  }
+  
+  code = malloc(sizeof(*code) * fsize);
+  if (code == NULL) {
+    goto error;
+  }
+  while (!feof(fin)) {
+    curop = bf_op_from_ascii((unsigned char) fgetc(fin));
+    if (curop != BF_OP_NOP) {
+      code[cp].operator = curop;
+      code[cp].count = 1;
+      cp++;
+    }
+  }
+  //  bf->code = realloc(code, cp); // resize code block
+  bf->code = code;
+  bf->code_size = cp;
+  bf->pc = code;
+  return 0;
+ error:
+  fprintf(stderr, "Couldn't load file");
+  return -1;
+}
+
+int
+bf_load_optimized(bf_context_t *bf, char *filename)
+{
+  
+}
+
+bf_context_t *
+bf_make_context(int hsize, int lssize)
+{
+  bf_context_t *bf = malloc(sizeof(*bf));
   if (!bf) {
+    fprintf(stderr, "Couldn't allocate a BF context: out of memory\n");
     goto error;
   }
   else {
-    // allocate heap
     bf->heap = malloc(sizeof(*bf->heap) * hsize);
     if (!bf->heap) {
-      goto errorheap;
+      goto error_heap;
     }
     else {
       bf->heap_size = hsize;
+      bf->dp = bf->heap;
       memset(bf->heap, 0, hsize);
-      // allocate nested loop stack
-      bf->loopstack = malloc(sizeof(*bf->loopstack) * LOOP_STACK_SIZE);
-      if (!bf->loopstack) {
-        goto errorloop;
+
+      bf->loop_stack = malloc(sizeof(*bf->loop_stack) * lssize);
+      if (!bf->loop_stack) {
+        goto error_loop;
       }
-      bf->loopstack_length = 0;
+      bf->loop_stack_length = 0;
+      bf->loop_stack_size = lssize;
     }
   }
-
-  if (load_program(bf, filename) < 0) {
-    goto errorcode;
-  }
-  else {
-    bf->pc = bf->prog;
-    bf->dp = bf->heap;
-    goto success;
-  }
-
- errorcode:
-  free(bf->loopstack);
- errorloop:
-  free(bf->heap);
- errorheap:
-  free(bf);
-  bf = 0;
- error:
-  fprintf(stderr, "Couldn't allocate enough memory\n");
- success:
   return bf;
+
+ error_loop:
+  free(bf->heap);
+ error_heap:
+  free(bf);
+ error:
+  return NULL;
 }
 
-
 int
-exec(struct BF *bf)
+bf_exec(bf_context_t *bf)
 {
-  int opens = 0;
-  char tmpchr;
-  char *tpc;
-  char *pe = bf->pc + bf->prog_size;
-  int *t;
-
-  while (bf->pc < pe) {
-    switch (*bf->pc) {
-    case '>':
-      bf->dp++;
+  bf_inst_t *tmppc;
+  bf_inst_t *endpc = bf->pc + bf->code_size;
+  while (bf->pc < endpc) {
+    switch (bf->pc->operator) {
+    case BF_OP_LEFT:
+      bf->dp -= bf->pc->count;
       break;
-    case'<':
-      bf->dp--;
+    case BF_OP_RIGHT:
+      bf->dp += bf->pc->count;
       break;
-    case '+':
-      *bf->dp += 1;
+    case BF_OP_INCR:
+      *bf->dp += bf->pc->count;
       break;
-    case '-':
-      *bf->dp -= 1;
+    case BF_OP_DECR:
+      *bf->dp -= bf->pc->count;
       break;
-    case '.':
-      putchar(*bf->dp);
-      break;
-    case ',':
-      tmpchr = (char)getchar();
-      switch (tmpchr) {
-      case -1: 
-        tmpchr = 0; // normalize EOF to 0
-        break;
-      case 13:
-        tmpchr = 10; // normalize \r to \n
-        break;
-      }
-      *bf->dp = tmpchr;
-      break;
-    case '[':
-      if (bf->loopstack_length < LOOP_STACK_SIZE) {
+    case BF_OP_LOOP:
+      if (bf->loop_stack_length < bf->loop_stack_size) {
         if (*bf->dp == 0) {
-          // find the jump to place (after the loop)
-          tpc = bf->pc + 1;
-          while (*tpc != '\0') {
-            if (*tpc == ']') {
-              if (opens > 0) {
-                opens--;
-              }
-              else {
-                opens = 0;
-                bf->pc = tpc;
-                break;
-              }
-            }
-            else if (*tpc == '[') {
-              opens++;
-            }
-            ++tpc;
+          // find the jump to location.
+          tmppc = locate_loop_skip_position(bf);
+          if (tmppc == NULL) {
+            fprintf(stderr, "Unmatched loop begin\n");
+            return -1;
           }
-
-          if (*tpc == '\0') {
-            fprintf(stderr, "EOF reached while searching for a loop point. bombing out\n");
-            exit(1);
-          }
+          bf->pc = tmppc;
         }
         else {
-          // push the loop onto the stack so we can get back to it.
-          bf->loopstack[bf->loopstack_length++] = bf->pc;
+          bf->loop_stack[bf->loop_stack_length++] = bf->pc;
         }
       }
       else {
-        fprintf(stderr, "too many nested loops!\n");
-        exit(1);
+        fprintf(stderr, "Loop nesting limit exceeded\n");
+        return -1;
       }
       break;
-    case ']':
-      if (bf->loopstack_length > 0) {
+    case BF_OP_LOOPEND:
+      if (bf->loop_stack_length > 0) {
         if (*bf->dp != 0) {
-          bf->pc = bf->loopstack[--bf->loopstack_length];
-          continue; // skip the increment
+          bf->pc = bf->loop_stack[--bf->loop_stack_length];
+          continue; // we want to skip the pc increment
         }
       }
       else {
-        fprintf(stderr, "No loop top to return to! %d loops pushed\n", bf->loopstack_length);
+        fprintf(stderr, "Loop close found, but there's no matching loop begin\n");
+        return -1;
       }
+      break;
+    case BF_OP_GET:
+      *bf->dp = bf_getchar();
+      break;
+    case BF_OP_PUT:
+      putchar(*bf->dp);
       break;
     }
-
-    ++bf->pc;
+    bf->pc++;
   }
-
-  return 0;
 }
 
 int
 main(int argc, char **argv)
 {
-  struct BF *bf;
-  if (argc < 2) {
-    fprintf(stderr, "fooey: give me a bf file\n");
-    exit(1);
+  bf_context_t *bf;
+  if (argc > 1) {
+    bf = bf_make_context(BF_HEAP_SIZE, BF_LOOP_STACK_SIZE);
+    if (!bf) {
+      fprintf(stderr, "uhh.. failed to allocate\n");
+      exit(1);
+    }
+    if (bf_load(bf, argv[1]) < 0) {
+      return 1;
+    }
+    bf_exec(bf);
   }
-
-  bf = init(HEAP_SIZE, argv[1]);
-  return exec(bf);
+  else {
+    fprintf(stderr, "usage: bf <prog>\n");
+    return 1;
+  }
+  return 0;
 }
