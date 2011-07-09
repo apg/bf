@@ -240,13 +240,30 @@ bf_exec(bf_context_t *bf)
 {
   bf_inst_t *tmppc;
   bf_inst_t *endpc = bf->pc + bf->code_size;
+  int *enddp = bf->dp + bf->heap_size;
+  int *newdp;
   while (bf->pc < endpc) {
     switch (bf->pc->operator) {
     case BF_OP_LEFT:
-      bf->dp -= bf->pc->count;
+      newdp = bf->dp - bf->pc->count;
+      if (newdp >= bf->heap) {
+        bf->dp = newdp;
+      }
+      else {
+        fprintf(stderr, "Data pointer is less than heap.\n");
+        return -1;
+      }
+
       break;
     case BF_OP_RIGHT:
-      bf->dp += bf->pc->count;
+      newdp = bf->dp + bf->pc->count;
+      if (newdp < enddp) {
+        bf->dp = newdp;
+      }
+      else {
+        fprintf(stderr, "Data pointer is greater than heap.\n");
+        return -1;
+      }
       break;
     case BF_OP_INCR:
       *bf->dp += bf->pc->count;
