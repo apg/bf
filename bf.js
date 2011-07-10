@@ -165,7 +165,7 @@ BrainFuck.prototype = {
       }
       else if (inst === '[') {
 	 if (this._heap[this._dp] == 0) {
-	   var newpc = this._find_next_jump_point(this._pc);
+	   var newpc = this._find_jump_point(this._pc);
 	   if (newpc < 0) {
             this._machinestatus = BrainFuckStatus.ERROR;
 	     if (this.onerror) {
