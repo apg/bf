@@ -2,7 +2,7 @@
 #define _BF_H_
 
 // how much loop nesting can we do?
-#define BF_LOOP_STACK_SIZE 32
+#define BF_LOOP_STACK_SIZE 1024
 
 // standard heap size is 30000 cells.
 #define BF_HEAP_SIZE 30000
@@ -40,7 +40,7 @@ typedef struct bf_context_t {
   int *heap;
   int heap_size;
   int *dp;
-  bf_inst_t **loop_stack; // jump pointers for looping
+  int *loop_stack; // jump pointers for looping
   int loop_stack_size;
   int loop_stack_length;
 } bf_context_t;

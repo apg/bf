@@ -66,10 +66,10 @@ bf_op_from_ascii(unsigned char c)
 int
 bf_load(bf_context_t *bf, char *filename)
 {
-  int opcount;
+  int opcount, tmp;
   long fsize;
   FILE *fin;
-  bf_inst_t *code, *tmp;
+  bf_inst_t *code;
   long cp = 0;
   bf_op_t curop;
 
@@ -87,19 +87,25 @@ bf_load(bf_context_t *bf, char *filename)
   if (code == NULL) {
     goto error;
   }
+
   while (!feof(fin)) {
     curop = bf_op_from_ascii((unsigned char) fgetc(fin));
     opcount = 1;
     if (curop != BF_OP_NOP) {
-      if (curop == BF_OP_LOOP) {
-        bf->loop_stack[bf->loop_stack_length++] = code + cp;
+      if (bf->loop_stack_length < bf->loop_stack_size) {
+        if (curop == BF_OP_LOOP) {
+          bf->loop_stack[bf->loop_stack_length++] = cp;
+          opcount = -1;
+        }
+        else if (curop == BF_OP_LOOPEND) {
+          tmp = bf->loop_stack[--bf->loop_stack_length];
+          opcount = cp - tmp;
+          code[tmp].count = opcount;
+        }
       }
-      else if (curop == BF_OP_LOOPEND) {
-        tmp = bf->loop_stack[--bf->loop_stack_length];
-        // code pointer's count is - (code + cp - tmp)
-        opcount = (code + cp) - tmp;
-        // fix the loop start for the current jump point.
-        tmp->count = opcount;
+      else {
+        fprintf(stderr, "Too many nested loops.\n");
+        return -1;
       }
 
       code[cp].operator = curop;
@@ -109,7 +115,7 @@ bf_load(bf_context_t *bf, char *filename)
   }
 
   if (bf->loop_stack_length > 0) {
-    fprintf(stderr, "Unmatched loop\n");
+    fprintf(stderr, "Unmatched loop.\n");
     return 0;
   }
 
@@ -126,13 +132,12 @@ bf_load(bf_context_t *bf, char *filename)
 int
 bf_load_optimized(bf_context_t *bf, char *filename)
 {
+  int opcount, tmp;
   long fsize;
   FILE *fin;
-  bf_inst_t *code, *tmp;
+  bf_inst_t *code;
   long cp = 0;
   bf_op_t curop, lastop, tmpop;
-  int opcount;
-
 
   fin = fopen(filename, "rb");
   if (!fin) {
@@ -157,15 +162,14 @@ bf_load_optimized(bf_context_t *bf, char *filename)
         curop == BF_OP_NOP) {
       if (curop != BF_OP_NOP) {
         if (curop == BF_OP_LOOP) {
-          bf->loop_stack[bf->loop_stack_length++] = code + cp;
+          bf->loop_stack[bf->loop_stack_length++] = cp;
         }
         else if (curop == BF_OP_LOOPEND) {
           tmp = bf->loop_stack[--bf->loop_stack_length];
-          // code pointer's count is - (code + cp - tmp)
-          opcount = (code + cp) - tmp;
-          // fix the loop start for the current jump point.
-          tmp->count = opcount;
+          opcount = cp - tmp;
+          code[tmp].count = opcount;
         }
+
         code[cp].operator = curop;
         code[cp].count = opcount;
         cp++;
