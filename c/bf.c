@@ -6,28 +6,15 @@
 
 #define CODE_BUFFER_SIZE 1024
 
-static bf_inst_t * 
-locate_loop_skip_position(bf_context_t *bf)
+static void
+dump_code_offsets(bf_context_t *bf)
 {
-  bf_inst_t *tmppc = bf->pc;
-  int loops = 0;
-  while (tmppc < (bf->code + bf->code_size)) {
-    if (tmppc->operator == BF_OP_LOOPEND) {
-      if (loops > 0) {
-        loops--;
-        continue;
-      }
-      loops = 0;
-      printf("returning loop\n");
-      return tmppc;
-    }
-    else if (tmppc->operator == BF_OP_LOOP) {
-      loops++;
-    }
-    tmppc++;
+  int i;
+  for (i = 0; i < bf->code_size; i++) {
+    printf("%p = %d\n", bf->code + i, bf->code[i].operator);
   }
-  return NULL;
 }
+
 
 int
 bf_getchar()
@@ -79,9 +66,10 @@ bf_op_from_ascii(unsigned char c)
 int
 bf_load(bf_context_t *bf, char *filename)
 {
+  int opcount;
   long fsize;
   FILE *fin;
-  bf_inst_t *code;
+  bf_inst_t *code, *tmp;
   long cp = 0;
   bf_op_t curop;
 
@@ -101,12 +89,30 @@ bf_load(bf_context_t *bf, char *filename)
   }
   while (!feof(fin)) {
     curop = bf_op_from_ascii((unsigned char) fgetc(fin));
+    opcount = 1;
     if (curop != BF_OP_NOP) {
+      if (curop == BF_OP_LOOP) {
+        bf->loop_stack[bf->loop_stack_length++] = code + cp;
+      }
+      else if (curop == BF_OP_LOOPEND) {
+        tmp = bf->loop_stack[--bf->loop_stack_length];
+        // code pointer's count is - (code + cp - tmp)
+        opcount = (code + cp) - tmp;
+        // fix the loop start for the current jump point.
+        tmp->count = opcount;
+      }
+
       code[cp].operator = curop;
-      code[cp].count = 1;
+      code[cp].count = opcount;
       cp++;
     }
   }
+
+  if (bf->loop_stack_length > 0) {
+    fprintf(stderr, "Unmatched loop\n");
+    return 0;
+  }
+
   bf->code = realloc(code, cp); // resize code block
   bf->code = code;
   bf->code_size = cp;
@@ -122,7 +128,7 @@ bf_load_optimized(bf_context_t *bf, char *filename)
 {
   long fsize;
   FILE *fin;
-  bf_inst_t *code;
+  bf_inst_t *code, *tmp;
   long cp = 0;
   bf_op_t curop, lastop, tmpop;
   int opcount;
@@ -150,8 +156,18 @@ bf_load_optimized(bf_context_t *bf, char *filename)
         curop == BF_OP_PUT ||
         curop == BF_OP_NOP) {
       if (curop != BF_OP_NOP) {
+        if (curop == BF_OP_LOOP) {
+          bf->loop_stack[bf->loop_stack_length++] = code + cp;
+        }
+        else if (curop == BF_OP_LOOPEND) {
+          tmp = bf->loop_stack[--bf->loop_stack_length];
+          // code pointer's count is - (code + cp - tmp)
+          opcount = (code + cp) - tmp;
+          // fix the loop start for the current jump point.
+          tmp->count = opcount;
+        }
         code[cp].operator = curop;
-        code[cp].count = 1;
+        code[cp].count = opcount;
         cp++;
       }
       curop = bf_op_from_ascii((unsigned char) fgetc(fin));
@@ -242,9 +258,18 @@ bf_exec(bf_context_t *bf)
   bf_inst_t *endpc = bf->pc + bf->code_size;
   int *enddp = bf->dp + bf->heap_size;
   int *newdp;
+
+#if DEBUG
+  dump_code_offsets(bf);
+#endif
+
   while (bf->pc < endpc) {
     switch (bf->pc->operator) {
     case BF_OP_LEFT:
+#if DEBUG
+      printf("Instr '<'. DP = %p (value: %d), PC = %p (heap bottom: %p)\n", \
+             bf->dp, *bf->dp, bf->pc, bf->heap);
+#endif
       newdp = bf->dp - bf->pc->count;
       if (newdp >= bf->heap) {
         bf->dp = newdp;
@@ -253,9 +278,12 @@ bf_exec(bf_context_t *bf)
         fprintf(stderr, "Data pointer is less than heap.\n");
         return -1;
       }
-
       break;
     case BF_OP_RIGHT:
+#if DEBUG
+      printf("Instr '>'. DP = %p (value: %d), PC = %p (heap bottom: %p)\n", \
+             bf->dp, *bf->dp, bf->pc, bf->heap);
+#endif
       newdp = bf->dp + bf->pc->count;
       if (newdp < enddp) {
         bf->dp = newdp;
@@ -266,47 +294,42 @@ bf_exec(bf_context_t *bf)
       }
       break;
     case BF_OP_INCR:
+#if DEBUG
+      printf("Instr '+'. DP = %p (value: %d), PC = %p (heap bottom: %p)\n", \
+             bf->dp, *bf->dp, bf->pc, bf->heap);
+#endif
+
       *bf->dp += bf->pc->count;
       break;
     case BF_OP_DECR:
+#if DEBUG
+      printf("Instr '-'. DP = %p (value: %d), PC = %p (heap bottom: %p)\n", \
+             bf->dp, *bf->dp, bf->pc, bf->heap);
+#endif
+
       *bf->dp -= bf->pc->count;
       break;
     case BF_OP_LOOP:
-      if (bf->loop_stack_length < bf->loop_stack_size) {
-        if (*bf->dp == 0) {
-          // find the jump to location.
-          tmppc = locate_loop_skip_position(bf);
-          if (tmppc == NULL) {
-            fprintf(stderr, "Unmatched loop begin\n");
-            return -1;
-          }
-          bf->pc = tmppc;
-        }
-        else {
-          bf->loop_stack[bf->loop_stack_length++] = bf->pc;
-        }
-      }
-      else {
-        fprintf(stderr, "Loop nesting limit exceeded\n");
-        return -1;
+      if (*bf->dp == 0) {
+        bf->pc += bf->pc->count;
       }
       break;
     case BF_OP_LOOPEND:
-      if (bf->loop_stack_length > 0) {
-        if (*bf->dp != 0) {
-          bf->pc = bf->loop_stack[--bf->loop_stack_length];
-          continue; // we want to skip the pc increment
-        }
-      }
-      else {
-        fprintf(stderr, "Loop close found, but there's no matching loop begin\n");
-        return -1;
+      if (*bf->dp != 0) {
+        bf->pc -= bf->pc->count;
       }
       break;
     case BF_OP_GET:
+#if DEBUG
+      printf("Getting a char\n");
+#endif
       *bf->dp = bf_getchar();
       break;
     case BF_OP_PUT:
+#if DEBUG
+      printf("putting a char\n");
+#endif
+
       putchar(*bf->dp);
       break;
     }

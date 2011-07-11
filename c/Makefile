@@ -1,7 +1,8 @@
 CC = gcc
-DCFLAGS = -g
+DCFLAGS = -g -DDEBUG=1
 PCFLAGS = -pg
 
+src = util.c bf.c main.c
 objs = util.o bf.o main.o
 
 %.o: %.c
@@ -10,11 +11,11 @@ objs = util.o bf.o main.o
 bf: $(objs)
 	$(CC) $(CFLAGS) -o $@ $^
 
-debug: $(objs)
-	$(CC) $(DEBUGCFLAGS) -o bf-debug $^
+debug:
+	$(CC) $(DCFLAGS) -o bf-debug $(src)
 
-profile: $(objs)
-	$(CC) $(PCFLAGS) -o bf-profile $^
+profile:
+	$(CC) $(PCFLAGS) -o bf-profile $(src)
 
 clean:
 	@$(RM) -rf *.o bf.dSYM
