@@ -58,8 +58,9 @@ bf_op_from_ascii(unsigned char c)
     return BF_OP_GET;
   case BF_ASCII_OP_PUT:
     return BF_OP_PUT;
+  default:
+    return BF_OP_NOP;
   }
-  return BF_OP_NOP; // dunno what that is.
 }
 
 
@@ -88,6 +89,8 @@ bf_load(bf_context_t *bf, char *filename)
     goto error;
   }
 
+  memset(code, 0, fsize);
+
   while (!feof(fin)) {
     curop = bf_op_from_ascii((unsigned char) fgetc(fin));
     opcount = 1;
@@ -100,14 +103,13 @@ bf_load(bf_context_t *bf, char *filename)
         else if (curop == BF_OP_LOOPEND) {
           tmp = bf->loop_stack[--bf->loop_stack_length];
           opcount = cp - tmp;
-          code[tmp].count = opcount;
+          code[tmp].count = opcount - 1;
         }
       }
       else {
         fprintf(stderr, "Too many nested loops.\n");
         return -1;
       }
-
       code[cp].operator = curop;
       code[cp].count = opcount;
       cp++;
@@ -119,10 +121,10 @@ bf_load(bf_context_t *bf, char *filename)
     return 0;
   }
 
-  bf->code = realloc(code, cp); // resize code block
-  bf->code = code;
+  bf->code = realloc(code, (cp + 1) * sizeof(*code)); // resize code block
   bf->code_size = cp;
   bf->pc = code;
+
   return 0;
  error:
   fprintf(stderr, "Couldn't load file");
@@ -167,7 +169,7 @@ bf_load_optimized(bf_context_t *bf, char *filename)
         else if (curop == BF_OP_LOOPEND) {
           tmp = bf->loop_stack[--bf->loop_stack_length];
           opcount = cp - tmp;
-          code[tmp].count = opcount;
+          code[tmp].count = opcount - 1;
         }
 
         code[cp].operator = curop;
@@ -193,8 +195,7 @@ bf_load_optimized(bf_context_t *bf, char *filename)
     }
   }
 
-  bf->code = realloc(code, cp); // resize code block
-  bf->code = code;
+  bf->code = realloc(code, (cp + 1) * sizeof(*code)); // resize code block
   bf->code_size = cp;
   bf->pc = code;
   return 0;
