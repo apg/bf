@@ -67,12 +67,16 @@ bf_op_from_ascii(unsigned char c)
 int
 bf_load(bf_context_t *bf, char *filename)
 {
-  int opcount, tmp;
+  int loop_stack[BF_LOOP_STACK_SIZE];
+  int opcount, tmp, loop_stack_length;
   long fsize;
   FILE *fin;
   bf_inst_t *code;
-  long cp = 0;
+  long cp;
   bf_op_t curop;
+
+  cp = 0;
+  loop_stack_length = 0;
 
   fin = fopen(filename, "rb");
   if (!fin) {
@@ -95,13 +99,13 @@ bf_load(bf_context_t *bf, char *filename)
     curop = bf_op_from_ascii((unsigned char) fgetc(fin));
     opcount = 1;
     if (curop != BF_OP_NOP) {
-      if (bf->loop_stack_length < bf->loop_stack_size) {
+      if (loop_stack_length < BF_LOOP_STACK_SIZE) {
         if (curop == BF_OP_LOOP) {
-          bf->loop_stack[bf->loop_stack_length++] = cp;
+          loop_stack[loop_stack_length++] = cp;
           opcount = -1;
         }
         else if (curop == BF_OP_LOOPEND) {
-          tmp = bf->loop_stack[--bf->loop_stack_length];
+          tmp = loop_stack[--loop_stack_length];
           opcount = cp - tmp;
           code[tmp].count = opcount - 1;
         }
@@ -114,11 +118,6 @@ bf_load(bf_context_t *bf, char *filename)
       code[cp].count = opcount;
       cp++;
     }
-  }
-
-  if (bf->loop_stack_length > 0) {
-    fprintf(stderr, "Unmatched loop.\n");
-    return 0;
   }
 
   bf->code = realloc(code, (cp + 1) * sizeof(*code)); // resize code block
@@ -134,12 +133,16 @@ bf_load(bf_context_t *bf, char *filename)
 int
 bf_load_optimized(bf_context_t *bf, char *filename)
 {
-  int opcount, tmp;
+  int loop_stack[BF_LOOP_STACK_SIZE];
+  int opcount, tmp, loop_stack_length;
   long fsize;
   FILE *fin;
   bf_inst_t *code;
-  long cp = 0;
+  long cp;
   bf_op_t curop, lastop, tmpop;
+
+  cp = 0;
+  loop_stack_length = 0;
 
   fin = fopen(filename, "rb");
   if (!fin) {
@@ -164,10 +167,10 @@ bf_load_optimized(bf_context_t *bf, char *filename)
         curop == BF_OP_NOP) {
       if (curop != BF_OP_NOP) {
         if (curop == BF_OP_LOOP) {
-          bf->loop_stack[bf->loop_stack_length++] = cp;
+          loop_stack[loop_stack_length++] = cp;
         }
         else if (curop == BF_OP_LOOPEND) {
-          tmp = bf->loop_stack[--bf->loop_stack_length];
+          tmp = loop_stack[--loop_stack_length];
           opcount = cp - tmp;
           code[tmp].count = opcount - 1;
         }
@@ -221,19 +224,10 @@ bf_make_context(int hsize, int lssize)
       bf->heap_size = hsize;
       bf->dp = bf->heap;
       memset(bf->heap, 0, hsize);
-
-      bf->loop_stack = malloc(sizeof(*bf->loop_stack) * lssize);
-      if (!bf->loop_stack) {
-        goto error_loop;
-      }
-      bf->loop_stack_length = 0;
-      bf->loop_stack_size = lssize;
     }
   }
   return bf;
 
- error_loop:
-  free(bf->heap);
  error_heap:
   free(bf);
  error:
@@ -249,9 +243,6 @@ bf_context_destroy(bf_context_t *bf)
     }
     if (bf->code != NULL) {
       free(bf->code);
-    }
-    if (bf->loop_stack != NULL) {
-      free(bf->loop_stack);
     }
   }
 }

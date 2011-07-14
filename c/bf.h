@@ -40,9 +40,6 @@ typedef struct bf_context_t {
   int *heap;
   int heap_size;
   int *dp;
-  int *loop_stack; // jump pointers for looping
-  int loop_stack_size;
-  int loop_stack_length;
 } bf_context_t;
 
 bf_op_t bf_op_from_ascii(unsigned char);
